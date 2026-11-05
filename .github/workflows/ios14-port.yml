@@ -663,6 +663,70 @@ jobs:
           perl -pi -e 's/\.iOS\(\.v1[5-9]\)/.iOS(.v14)/g' "$PKG"
           grep -n "\.iOS(" "$PKG"
 
+      - name: Shim iOS 15 APIs in Melo-Controller
+        run: |
+          python3 - <<'PY'
+          import re
+          root = "build/dd/SourcePackages/checkouts/Melo-Controller/Sources/Melo-Controller/"
+
+          def edit(rel, fn):
+              p = root + rel
+              s = open(p, encoding="utf-8").read()
+              n = fn(s)
+              assert n != s, "nothing changed in " + rel
+              open(p, "w", encoding="utf-8").write(n)
+
+          def on_lines(lines, pat, repl):
+              def f(s):
+                  L = s.split("\n")
+                  for ln in lines:
+                      n = re.sub(pat, repl, L[ln - 1])
+                      assert n != L[ln - 1], "no match line %d: %s" % (ln, L[ln - 1])
+                      L[ln - 1] = n
+                  return "\n".join(L)
+              return f
+
+          # ButtonView: foregroundStyle -> foregroundColor, overlay(alignment:content:) -> overlayCompat
+          edit("Buttons/ButtonView.swift", lambda s: s.replace(".foregroundStyle(", ".foregroundColor("))
+          edit("Buttons/ButtonView.swift", on_lines([46, 66], r"\.overlay(\s*[({])", r".overlayCompat\1"))
+
+          # Materials -> plain translucent color
+          mat = lambda s: re.sub(r"\.background\(\s*\.ultraThinMaterial\s*\)",
+                                 ".background(Color(white: 0.1).opacity(0.75))", s)
+          edit("ControllerView.swift", mat)
+          edit("Layout/LayoutEditorView.swift", mat)
+
+          # LayoutOptionsView: alert with actions + Button roles
+          edit("Layout/LayoutOptionsView.swift", on_lines([109], r"\.alert\(", ".alertCompat("))
+          edit("Layout/LayoutOptionsView.swift", lambda s: re.sub(r",\s*role:\s*\.\w+", "", s))
+          PY
+
+          cat > build/dd/SourcePackages/checkouts/Melo-Controller/Sources/Melo-Controller/iOS14Compat.swift <<'SWIFT'
+          import SwiftUI
+
+          extension View {
+              func overlayCompat<V: View>(alignment: Alignment = .center,
+                                          @ViewBuilder content: () -> V) -> some View {
+                  overlay(content(), alignment: alignment)
+              }
+
+              @ViewBuilder
+              func alertCompat<S: StringProtocol, A: View, M: View>(
+                  _ title: S,
+                  isPresented: Binding<Bool>,
+                  @ViewBuilder actions: () -> A,
+                  @ViewBuilder message: () -> M
+              ) -> some View {
+                  if #available(iOS 15.0, *) {
+                      self.alert(title, isPresented: isPresented, actions: actions, message: message)
+                  } else {
+                      self
+                  }
+              }
+          }
+          SWIFT
+          echo "shims applied"
+
       - name: Build MeloCafe (unsigned, device)
         run: |
           set +e
