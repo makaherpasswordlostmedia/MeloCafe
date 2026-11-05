@@ -765,6 +765,33 @@ jobs:
           PY
           grep -n "StartupDiag" src/CMakeLists.txt
 
+      - name: Fix Cemu launch crash (xbyak Cpu static init throws on iOS 14)
+        run: |
+          python3 - <<'PY'
+          p = "src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp"
+          s = open(p, encoding="utf-8").read()
+          old_decl = "static const util::Cpu s_cpu;\n"
+          assert s.count(old_decl) == 1, "s_cpu declaration not found"
+          new_decl = """// Xbyak's Cpu ctor throws on some iOS versions (sysctl lookup fails). Doing that in a
+          // static initializer aborts the app before main(), so detect lazily and fail safe.
+          static bool IsAtomicSupported()
+          {
+          \tstatic const bool supported = []() {
+          \t\ttry { return util::Cpu().isAtomicSupported(); }
+          \t\tcatch (...) { return false; }
+          \t}();
+          \treturn supported;
+          }
+          """
+          s = s.replace(old_decl, new_decl.replace("\n          ", "\n"))
+          assert s.count("s_cpu.isAtomicSupported()") == 1, "s_cpu usage not found"
+          s = s.replace("s_cpu.isAtomicSupported()", "IsAtomicSupported()")
+          assert "s_cpu" not in s
+          open(p, "w", encoding="utf-8").write(s)
+          print("BackendAArch64.cpp patched")
+          PY
+          grep -n "IsAtomicSupported" src/Cafe/HW/Espresso/Recompiler/BackendAArch64/BackendAArch64.cpp
+
       - name: Configure Cemu core (iOS, Xcode generator)
         run: |
           cmake -S . -B build -G Xcode \
