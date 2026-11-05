@@ -653,12 +653,22 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
 
+      - name: Patch Melo-Controller to iOS 14
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project MeloCafe/MeloCafe.xcodeproj -scheme MeloCafe \
+            -derivedDataPath build/dd
+          PKG=build/dd/SourcePackages/checkouts/Melo-Controller/Package.swift
+          test -f "$PKG"
+          perl -pi -e 's/\.iOS\(\.v1[5-9]\)/.iOS(.v14)/g' "$PKG"
+          grep -n "\.iOS(" "$PKG"
+
       - name: Build MeloCafe (unsigned, device)
         run: |
           set +e
           xcodebuild -project MeloCafe/MeloCafe.xcodeproj -scheme MeloCafe \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
-            -derivedDataPath build/dd \
+            -derivedDataPath build/dd -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build > build/xcodebuild.log 2>&1
           RC=$?
