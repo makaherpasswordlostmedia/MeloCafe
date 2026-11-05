@@ -655,18 +655,31 @@ jobs:
 
       - name: Build MeloCafe (unsigned, device)
         run: |
+          set +e
           xcodebuild -project MeloCafe/MeloCafe.xcodeproj -scheme MeloCafe \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build/dd \
-            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tee build/xcodebuild.log | tail -n 200
+            build > build/xcodebuild.log 2>&1
+          RC=$?
+          echo "xcodebuild exit code: $RC"
+          if [ $RC -ne 0 ]; then
+            echo "================ ERRORS ================"
+            grep -E "error:|fatal error:|ld: " build/xcodebuild.log | sort -u | cut -c1-400 | head -120
+            echo "================ SwiftPM packages ================"
+            for f in $(find build/dd/SourcePackages/checkouts -maxdepth 2 -name Package.swift 2>/dev/null); do
+              echo "--- $f"; sed -n 1,30p "$f"
+            done
+            exit $RC
+          fi
 
       - name: Package .ipa
         run: |
-          APP=$(find build/dd/Build/Products -name MeloCafe.app -maxdepth 3 | head -n1)
+          APP=$(find build/dd/Build/Products -maxdepth 3 -name MeloCafe.app | head -n1)
+          test -n "$APP" || { echo "MeloCafe.app not found"; exit 1; }
           mkdir -p Payload && cp -R "$APP" Payload/
           zip -qr MeloCafe-ios14-unsigned.ipa Payload
+          ls -la MeloCafe-ios14-unsigned.ipa
 
       - name: Upload artifacts
         if: always()
