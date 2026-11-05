@@ -665,6 +665,7 @@ jobs:
 
       - name: Shim iOS 15 APIs in Melo-Controller
         run: |
+          chmod -R u+w build/dd/SourcePackages/checkouts/Melo-Controller
           python3 - <<'PY'
           import re
           root = "build/dd/SourcePackages/checkouts/Melo-Controller/Sources/Melo-Controller/"
