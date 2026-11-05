@@ -701,6 +701,33 @@ jobs:
           git apply --whitespace=nowarn -p1 memfix.patch
           git status --short
 
+      - name: Fix guest memory reservation + InputManager shutdown crash
+        run: |
+          python3 - <<'PY'
+          import re
+          # --- MMU.cpp: finer base step (16MiB instead of 256MiB), clean exit on failure
+          p = "src/Cafe/HW/MMU/MMU.cpp"
+          s = open(p).read()
+          n = s.count("base += 0x10000000ULL")
+          s = s.replace("base += 0x10000000ULL", "base += 0x01000000ULL")
+          old = '\t\tWindowSystem::ShowErrorDialog(_tr("Unable to reserve guest memory regions"), _tr("Error"));\n\t\texit(-1);'
+          new = '\t\tWindowSystem::ShowErrorDialog(_tr("Unable to reserve guest memory regions"), _tr("Error"));\n#if BOOST_OS_IOS\n\t\t_exit(-1); // skip static dtors: InputManager thread is still running\n#else\n\t\texit(-1);\n#endif'
+          assert old in s, "exit(-1) block not found"
+          s = s.replace(old, new)
+          if "#include <unistd.h>" not in s:
+              s = s.replace('#include "config/ActiveSettings.h"', '#include "config/ActiveSettings.h"\n#include <unistd.h>', 1)
+          open(p, "w").write(s)
+          print("MMU.cpp patched, step replaced:", n)
+          # --- InputManager.cpp: stop + join update thread in destructor (fixes signal 6 in lock_shared)
+          p = "src/input/InputManager.cpp"
+          s = open(p).read()
+          old = "InputManager::~InputManager()\n{"
+          assert old in s, "InputManager dtor not found"
+          s = s.replace(old, old + "\n\tm_update_thread_shutdown.store(true);\n\tif (m_update_thread.joinable())\n\t\tm_update_thread.join();", 1)
+          open(p, "w").write(s)
+          print("InputManager.cpp patched")
+          PY
+
       - name: Patch MoltenVK minos to 14.0
         run: |
           python3 - <<'PY'
@@ -737,7 +764,7 @@ jobs:
           PY
 
       - name: Install tools
-        run: brew install cmake ninja nasm pkg-config
+        run: brew install cmake ninja nasm pkg-config ldid
 
       - name: Bootstrap vcpkg
         run: ./dependencies/vcpkg/bootstrap-vcpkg.sh -disableMetrics
@@ -1035,11 +1062,33 @@ jobs:
             exit $RC
           fi
 
-      - name: Package .ipa
+      - name: Sign with entitlements (ldid) + package .ipa
         run: |
           APP=$(find build/dd/Build/Products -maxdepth 3 -name MeloCafe.app | head -n1)
           test -n "$APP" || { echo "MeloCafe.app not found"; exit 1; }
-          mkdir -p Payload && cp -R "$APP" Payload/
+          cat > ent.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.kernel.extended-virtual-addressing</key><true/>
+              <key>com.apple.developer.kernel.increased-memory-limit</key><true/>
+              <key>get-task-allow</key><true/>
+              <key>dynamic-codesigning</key><true/>
+              <key>com.apple.private.security.no-sandbox</key><true/>
+              <key>platform-application</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          EXE="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          ldid -Sent.plist "$EXE"
+          # RamDonor extension (if built): same entitlements so it can donate memory
+          for X in $(find "$APP" -type d -name "*.appex" -o -type d -name "*.xpc" 2>/dev/null); do
+            XE="$X/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$X/Info.plist" 2>/dev/null)"
+            [ -f "$XE" ] && ldid -Sent.plist "$XE" && echo "signed $XE"
+          done
+          echo "entitlements in main binary:"; ldid -e "$EXE"
+          rm -rf Payload && mkdir -p Payload && cp -R "$APP" Payload/
           zip -qr MeloCafe-ios14-unsigned.ipa Payload
           ls -la MeloCafe-ios14-unsigned.ipa
 
