@@ -623,6 +623,21 @@ jobs:
           print("MoltenVK patched")
           PY
 
+      - name: Fix ZArchive tool bundle error on iOS
+        run: |
+          python3 - <<'PY'
+          p = "CMakeLists.txt"
+          s = open(p).read()
+          old = 'add_subdirectory("dependencies/ZArchive" EXCLUDE_FROM_ALL)'
+          new = ('set(_MELO_SAVED_BUNDLE "${CMAKE_MACOSX_BUNDLE}")\n'
+                 '\tset(CMAKE_MACOSX_BUNDLE OFF)\n'
+                 '\tadd_subdirectory("dependencies/ZArchive" EXCLUDE_FROM_ALL)\n'
+                 '\tset(CMAKE_MACOSX_BUNDLE "${_MELO_SAVED_BUNDLE}")')
+          assert old in s
+          open(p, "w").write(s.replace(old, new))
+          print("ZArchive bundle fix applied")
+          PY
+
       - name: Install tools
         run: brew install cmake ninja nasm pkg-config
 
