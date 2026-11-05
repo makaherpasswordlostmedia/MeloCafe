@@ -601,6 +601,54 @@ jobs:
           B64
           python3 -c "import base64;open('ios14.patch','wb').write(base64.b64decode(open('ios14.patch.b64').read()))"
           git apply --whitespace=nowarn ios14.patch
+          # iOS memory fix (extended VA entitlement, donated-memory returns, mlc01, 16K page alignment)
+          cat > memfix.patch.b64 <<'B64'
+          ZGlmZiAtcnVOIGEvTWVsb0NhZmUvTWVsb0NhZmUvTWVsb0NhZmUuZW50aXRsZW1lbnRzIGIvTWVsb0NhZmUvTWVsb0NhZmUvTWVs
+          b0NhZmUuZW50aXRsZW1lbnRzCi0tLSBhL01lbG9DYWZlL01lbG9DYWZlL01lbG9DYWZlLmVudGl0bGVtZW50cwkyMDI2LTExLTA1
+          IDEyOjI4OjE1LjAwMDAwMDAwMCArMDAwMAorKysgYi9NZWxvQ2FmZS9NZWxvQ2FmZS9NZWxvQ2FmZS5lbnRpdGxlbWVudHMJMjAy
+          Ni0xMS0wNSAxMzoxNjo1NC44NjU4MjM2MDUgKzAwMDAKQEAgLTQsNSArNCw3IEBACiA8ZGljdD4KIAk8a2V5PmNvbS5hcHBsZS5k
+          ZXZlbG9wZXIua2VybmVsLmluY3JlYXNlZC1tZW1vcnktbGltaXQ8L2tleT4KIAk8dHJ1ZS8+CisJPGtleT5jb20uYXBwbGUuZGV2
+          ZWxvcGVyLmtlcm5lbC5leHRlbmRlZC12aXJ0dWFsLWFkZHJlc3Npbmc8L2tleT4KKwk8dHJ1ZS8+CiA8L2RpY3Q+CiA8L3BsaXN0
+          PgpkaWZmIC1ydU4gYS9zcmMvQ2FmZS9IVy9NTVUvTU1VLmNwcCBiL3NyYy9DYWZlL0hXL01NVS9NTVUuY3BwCi0tLSBhL3NyYy9D
+          YWZlL0hXL01NVS9NTVUuY3BwCTIwMjYtMTEtMDUgMTI6Mjg6MTUuMDAwMDAwMDAwICswMDAwCisrKyBiL3NyYy9DYWZlL0hXL01N
+          VS9NTVUuY3BwCTIwMjYtMTEtMDUgMTM6MTY6NTQuODY1NjI1OTAwICswMDAwCkBAIC00NSw2ICs0NSwxNyBAQAogCQlyZXR1cm4g
+          bnVsbHB0cjsKIAl9CiAjZW5kaWYKKyNpZiBCT09TVF9PU19JT1MKKwl7CisJCS8vIGhvc3QgcGFnZSBzaXplIGlzIDE2SyBvbiBp
+          T1M7IHZtX3Byb3RlY3QgbmVlZHMgcGFnZS1hbGlnbmVkIHJhbmdlcyAoZS5nLiAweEZGRkZGMDAwIC8gMHg1MDAwIGd1ZXN0IHJh
+          bmdlcyBhcmUgbm90KQorCQljb25zdCB1aW50NjQgcGFnZU1hc2sgPSAodWludDY0KU1lbU1hcHBlcjo6R2V0UGFnZVNpemUoKSAt
+          IDE7CisJCWNvbnN0IHVpbnQ2NCBhbGlnbmVkQmVnaW4gPSAodWludDY0KW9mZnNldCAmIH5wYWdlTWFzazsKKwkJY29uc3QgdWlu
+          dDY0IGFsaWduZWRFbmQgPSAoKHVpbnQ2NClvZmZzZXQgKyBzaXplICsgcGFnZU1hc2spICYgfnBhZ2VNYXNrOworCQlpZiAoTWVt
+          TWFwcGVyOjpBbGxvY2F0ZU1lbW9yeShtZW1vcnlfYmFzZSArIGFsaWduZWRCZWdpbiwgKHNpemVfdCkoYWxpZ25lZEVuZCAtIGFs
+          aWduZWRCZWdpbiksIE1lbU1hcHBlcjo6UEFHRV9QRVJNSVNTSU9OOjpQX1JXLCB0cnVlKSA9PSBudWxscHRyKQorCQkJcmV0dXJu
+          IG51bGxwdHI7CisJCXJldHVybiBtZW1vcnlfYmFzZSArIG9mZnNldDsKKwl9CisjZW5kaWYKIAlyZXR1cm4gTWVtTWFwcGVyOjpB
+          bGxvY2F0ZU1lbW9yeShtZW1vcnlfYmFzZSArIG9mZnNldCwgc2l6ZSwgTWVtTWFwcGVyOjpQQUdFX1BFUk1JU1NJT046OlBfUlcs
+          IHRydWUpOwogfQogCkBAIC0xODksNyArMjAwLDcgQEAKIAkJLy8gdGhpcyBraW5kYSBkb2Vzbid0IHdvcmssIGJ1dCBpdCBwcm9k
+          dWNlcyBwcmFjdGljYWxseSB0aGUgc2FtZSByZXN1bHQgYXMgd2l0aG91dCBpdCBleGNlcHQgZ2l2aW5nIG1lIG1vcmUgaW5mbywg
+          c28gbGlrZSBpJ2xsIGtlZXAgaXQgLXN0b3NzeTExCiAJCWNlbXVMb2dfbG9nKExvZ1R5cGU6OkZvcmNlLCAiQ29udGlndW91cyBn
+          dWVzdCByZXNlcnZhdGlvbiBmYWlsZWQ7IHRyeWluZyBzcGFyc2UgcmVzZXJ2YXRpb25zIChob3N0IHBhZ2Ugc2l6ZToge30pIiwg
+          TWVtTWFwcGVyOjpHZXRQYWdlU2l6ZSgpKTsKICAgICAgICAgCi0JCWZvciAodWludHB0cl90IGJhc2UgPSAweDEwMDAwMDAwVUxM
+          OyBiYXNlIDwgMHgxMDAwMDAwMDAwVUxMOyBiYXNlICs9IDB4MTAwMDAwMDBVTEwpCisJCWZvciAodWludHB0cl90IGJhc2UgPSAw
+          eDEwMDAwMDAwMFVMTDsgYmFzZSA8IDB4MTAwMDAwMDAwMFVMTDsgYmFzZSArPSAweDEwMDAwMDAwVUxMKQogCQl7CiAJCQlib29s
+          IHN1Y2Nlc3MgPSB0cnVlOwogCQkJZm9yIChhdXRvKiByYW5nZSA6IGdfbW11UmFuZ2VzKQpkaWZmIC1ydU4gYS9zcmMvQ2FmZS9I
+          Vy9NTVUvTU1VLmggYi9zcmMvQ2FmZS9IVy9NTVUvTU1VLmgKLS0tIGEvc3JjL0NhZmUvSFcvTU1VL01NVS5oCTIwMjYtMTEtMDUg
+          MTI6Mjg6MTUuMDAwMDAwMDAwICswMDAwCisrKyBiL3NyYy9DYWZlL0hXL01NVS9NTVUuaAkyMDI2LTExLTA1IDEzOjE2OjU0Ljg2
+          NDk2NTc2MyArMDAwMApAQCAtNTksNyArNTksNyBAQAogICAgIHVpbnQ2NF90IHNpemUgPSAwOwogfTsKIAotc3RhdGljIERvbmF0
+          ZWRNZW1vcnkgc19kb25hdGVkTWVtb3J5OworaW5saW5lIERvbmF0ZWRNZW1vcnkgc19kb25hdGVkTWVtb3J5OyAvLyBpbmxpbmU6
+          IG9uZSBzaGFyZWQgaW5zdGFuY2UgYWNyb3NzIFRVcwogCiBzdHJ1Y3QgTU1VUmFuZ2UKIHsKZGlmZiAtcnVOIGEvc3JjL21haW4u
+          Y3BwIGIvc3JjL21haW4uY3BwCi0tLSBhL3NyYy9tYWluLmNwcAkyMDI2LTExLTA1IDEyOjI4OjE1LjAwMDAwMDAwMCArMDAwMAor
+          KysgYi9zcmMvbWFpbi5jcHAJMjAyNi0xMS0wNSAxMzoxNjo1NC44NjQ0MzkyMTQgKzAwMDAKQEAgLTM4OSw2ICszODksMTEgQEAK
+          ICAgICBjZW11TG9nX2NyZWF0ZUxvZ0ZpbGUoZmFsc2UpOwogICAgIAogICAgIGZzY19pbml0KCk7CisgICAgeworICAgICAgICAv
+          LyBpT1M6IG1sYzAxIGRvZXNuJ3QgZXhpc3Qgb24gZmlyc3QgbGF1bmNoLCBjcmVhdGUgaXQgc28gU2V0TUxDUGF0aCBkb2Vzbid0
+          IHJlamVjdCBpdAorICAgICAgICBzdGQ6OmVycm9yX2NvZGUgbWxjRWM7CisgICAgICAgIGZzOjpjcmVhdGVfZGlyZWN0b3JpZXMo
+          QWN0aXZlU2V0dGluZ3M6OkdldE1sY1BhdGgoKSwgbWxjRWMpOworICAgIH0KICAgICBDYWZlVGl0bGVMaXN0OjpTZXRNTENQYXRo
+          KEFjdGl2ZVNldHRpbmdzOjpHZXRNbGNQYXRoKCkpOwogICAgIENhZmVTYXZlTGlzdDo6U2V0TUxDUGF0aChBY3RpdmVTZXR0aW5n
+          czo6R2V0TWxjUGF0aCgpKTsKICAgICAKQEAgLTQ2OSw5ICs0NzQsMTQgQEAKIGJvb2wgb2ZmZXJfZG9uYXRlZF9tZW1vcnkodm9p
+          ZCogYmFzZSwgdWludDY0X3Qgc2l6ZSkKIHsKICAgICBvZmZlcl9kb25hdGVkX21lbSgodWludDgqKWJhc2UsIHNpemUpOworICAg
+          IHJldHVybiB0cnVlOwogfQogCi1ib29sIHdpdGhkcmF3X2RvbmF0ZWRfbWVtb3J5KHZvaWQpIHt9Citib29sIHdpdGhkcmF3X2Rv
+          bmF0ZWRfbWVtb3J5KHZvaWQpCit7CisgICAgb2ZmZXJfZG9uYXRlZF9tZW0obnVsbHB0ciwgMCk7CisgICAgcmV0dXJuIHRydWU7
+          Cit9CiAKIHN0cnVjdCBHYW1lSWNvblJlc3VsdCB7CiAgICAgdWludDhfdCogZGF0YTsK
+          B64
+          python3 -c "import base64;open('memfix.patch','wb').write(base64.b64decode(open('memfix.patch.b64').read()))"
+          git apply --whitespace=nowarn -p1 memfix.patch
           git status --short
 
       - name: Patch MoltenVK minos to 14.0
