@@ -644,6 +644,127 @@ jobs:
       - name: Bootstrap vcpkg
         run: ./dependencies/vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+      - name: Add startup diagnostics to Cemu (terminate/signal logger)
+        run: |
+          cat > src/StartupDiag.cpp <<'CPP'
+          // Startup diagnostics: logs uncaught C++ exceptions (incl. from static initializers)
+          // to <app>/Documents/MeloCafe-startup.log (visible in the Files app) and stderr.
+          #include <cstdio>
+          #include <cstdlib>
+          #include <cstring>
+          #include <ctime>
+          #include <exception>
+          #include <initializer_list>
+          #include <typeinfo>
+          #include <cxxabi.h>
+          #include <dlfcn.h>
+          #include <execinfo.h>
+          #include <signal.h>
+
+          namespace
+          {
+          	FILE* OpenLog()
+          	{
+          		const char* home = getenv("HOME");
+          		char path[1024];
+          		snprintf(path, sizeof(path), "%s/Documents/MeloCafe-startup.log", home ? home : "/tmp");
+          		FILE* f = fopen(path, "a");
+          		return f ? f : stderr;
+          	}
+
+          	void DumpBacktrace(FILE* f)
+          	{
+          		void* frames[48];
+          		int n = backtrace(frames, 48);
+          		for (int i = 0; i < n; i++)
+          		{
+          			Dl_info info{};
+          			if (dladdr(frames[i], &info) && info.dli_fname)
+          			{
+          				const char* img = strrchr(info.dli_fname, '/');
+          				img = img ? img + 1 : info.dli_fname;
+          				unsigned long off = (unsigned long)((char*)frames[i] - (char*)info.dli_fbase);
+          				int st = 0;
+          				char* dem = info.dli_sname ? abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &st) : nullptr;
+          				fprintf(f, "  #%02d %s+0x%lx %s\n", i, img, off, dem ? dem : (info.dli_sname ? info.dli_sname : ""));
+          				free(dem);
+          			}
+          			else
+          				fprintf(f, "  #%02d %p\n", i, frames[i]);
+          		}
+          	}
+
+          	void Report(FILE* f, const char* title)
+          	{
+          		time_t t = time(nullptr);
+          		fprintf(f, "\n=== %s @ %s", title, ctime(&t));
+          		if (std::type_info* ti = abi::__cxa_current_exception_type())
+          		{
+          			int st = 0;
+          			char* dem = abi::__cxa_demangle(ti->name(), nullptr, nullptr, &st);
+          			fprintf(f, "exception type: %s\n", dem ? dem : ti->name());
+          			free(dem);
+          			try { throw; }
+          			catch (const std::exception& e) { fprintf(f, "what(): %s\n", e.what()); }
+          			catch (...) { fprintf(f, "what(): <not a std::exception>\n"); }
+          		}
+          		else
+          			fprintf(f, "no active C++ exception\n");
+          		DumpBacktrace(f);
+          		fflush(f);
+          	}
+
+          	void OnTerminate()
+          	{
+          		FILE* f = OpenLog();
+          		Report(f, "std::terminate");
+          		if (f != stderr)
+          		{
+          			fclose(f);
+          			Report(stderr, "std::terminate");
+          		}
+          		abort();
+          	}
+
+          	void OnSignal(int sig)
+          	{
+          		FILE* f = OpenLog();
+          		char title[48];
+          		snprintf(title, sizeof(title), "fatal signal %d", sig);
+          		Report(f, title);
+          		if (f != stderr)
+          			fclose(f);
+          		signal(sig, SIG_DFL);
+          		raise(sig);
+          	}
+
+          	__attribute__((constructor(101))) void InstallStartupDiag()
+          	{
+          		std::set_terminate(OnTerminate);
+          		for (int s : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP})
+          			signal(s, OnSignal);
+          		FILE* f = OpenLog();
+          		time_t t = time(nullptr);
+          		fprintf(f, "\n--- startup diag installed @ %s", ctime(&t));
+          		if (f != stderr)
+          			fclose(f);
+          	}
+          }
+          CPP
+          python3 - <<'PY'
+          p = "src/CMakeLists.txt"
+          s = open(p).read()
+          a = "add_library(CemuBin SHARED\n        main.cpp"
+          b = "add_executable(CemuBin\n\t\tmain.cpp"
+          assert a in s or b in s
+          # StartupDiag.cpp goes FIRST so its constructor runs before other static initializers
+          s = s.replace(a, "add_library(CemuBin SHARED\n        StartupDiag.cpp\n        main.cpp")
+          s = s.replace(b, "add_executable(CemuBin\n\t\tStartupDiag.cpp\n\t\tmain.cpp")
+          open(p, "w").write(s)
+          print("StartupDiag.cpp added to CemuBin")
+          PY
+          grep -n "StartupDiag" src/CMakeLists.txt
+
       - name: Configure Cemu core (iOS, Xcode generator)
         run: |
           cmake -S . -B build -G Xcode \
@@ -797,6 +918,35 @@ jobs:
           zip -qr MeloCafe-ios14-unsigned.ipa Payload
           ls -la MeloCafe-ios14-unsigned.ipa
 
+      - name: Symbolicate launch crash (Cemu static init)
+        continue-on-error: true
+        run: |
+          BIN=$(find build/dd/Build/Products -path "*Frameworks/Cemu.framework/Cemu" | head -n1)
+          echo "binary: $BIN"
+          echo "built UUID : $(dwarfdump --uuid "$BIN")"
+          echo "crash UUID : FFAF6439-E7D1-3E4F-B5FD-FE820877000A (Cemu in the crash report)"
+          {
+            echo "== atos (load 0x104840000) =="
+            xcrun atos -o "$BIN" -arch arm64 -l 0x104840000 0x10555bb3c 0x105622268
+            echo "== nearest symbols =="
+            python3 - "$BIN" <<'PY'
+          import subprocess, sys, bisect
+          out = subprocess.run(["nm", "-n", "-arch", "arm64", sys.argv[1]], capture_output=True, text=True).stdout
+          syms = []
+          for l in out.splitlines():
+              p = l.split(None, 2)
+              if len(p) == 3 and p[1] in "tTsS":
+                  try: syms.append((int(p[0], 16), p[2]))
+                  except ValueError: pass
+          addrs = [a for a, _ in syms]
+          for name, off in (("throw site", 0x10555bb3c - 0x104840000), ("init caller", 0x105622268 - 0x104840000)):
+              for base in (0, 0x100000000):
+                  i = bisect.bisect_right(addrs, off + base) - 1
+                  if i >= 0:
+                      print("%s +0x%x (base %#x): %s +%d" % (name, off, base, syms[i][1], off + base - syms[i][0]))
+          PY
+          } 2>&1 | tee build/crash-symbols.txt
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -805,3 +955,4 @@ jobs:
           path: |
             MeloCafe-ios14-unsigned.ipa
             build/xcodebuild.log
+            build/crash-symbols.txt
