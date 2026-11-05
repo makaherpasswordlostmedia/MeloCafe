@@ -728,6 +728,47 @@ jobs:
           SWIFT
           echo "shims applied"
 
+      - name: Fix iOS 15 APIs in app target
+        run: |
+          python3 - <<'PY'
+          import re
+          base = "MeloCafe/MeloCafe/"
+
+          def edit(rel, fn):
+              p = base + rel
+              s = open(p, encoding="utf-8").read()
+              n = fn(s)
+              assert n != s, "nothing changed in " + rel
+              open(p, "w", encoding="utf-8").write(n)
+
+          # overlay(alignment:content:) -> compatOverlay
+          edit("UI/Emulation/EmulationView.swift",
+               lambda s: re.sub(r"\.overlay\(alignment:", ".compatOverlay(alignment:", s))
+
+          # Section(String) { } -> Section(header:)
+          edit("UI/GamesList/GameGraphicPacksView.swift",
+               lambda s: s.replace("Section(group) {", "Section(header: Text(group)) {"))
+          edit("UI/Settings/GraphicPacksView.swift",
+               lambda s: s.replace("Section(group) {", "Section(header: Text(group)) {"))
+          edit("UI/Settings/AppIconSwitcher.swift",
+               lambda s: s.replace("Section(iconSet.creator) {", "Section(header: Text(iconSet.creator)) {")
+                          .replace(".foregroundStyle(.tertiary)", ".foregroundColor(Color(UIColor.tertiaryLabel))"))
+
+          # helper
+          with open(base + "Common/Compat.swift", "a", encoding="utf-8") as f:
+              f.write("""
+
+          extension View {
+              /// iOS 15 `overlay(alignment:content:)` replacement.
+              func compatOverlay<V: View>(alignment: Alignment = .center,
+                                          @ViewBuilder content: () -> V) -> some View {
+                  overlay(content(), alignment: alignment)
+              }
+          }
+          """.replace("\n          ", "\n"))
+          print("app fixes applied")
+          PY
+
       - name: Build MeloCafe (unsigned, device)
         run: |
           set +e
