@@ -599,7 +599,7 @@ jobs:
           QlJBUllfTElOS0FHRSBzdGF0aWMpCiBzZXQoVkNQS0dfQ01BS0VfU1lTVEVNX05BTUUgaU9TKQotc2V0KFZDUEtHX09TWF9ERVBM
           T1lNRU5UX1RBUkdFVCAiMTUuMCIpCitzZXQoVkNQS0dfT1NYX0RFUExPWU1FTlRfVEFSR0VUICIxNC4wIikK
           B64
-          base64 -d ios14.patch.b64 > ios14.patch
+          python3 -c "import base64;open('ios14.patch','wb').write(base64.b64decode(open('ios14.patch.b64').read()))"
           git apply --whitespace=nowarn ios14.patch
           git status --short
 
